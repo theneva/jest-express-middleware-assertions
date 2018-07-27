@@ -2,22 +2,38 @@ const fetch = require('node-fetch');
 const express = require('express');
 const app = express();
 
-app.use((req, res, next) => {
-  throw new Error('hi');
-});
+let httpServer;
 
-app.get((req, res) => {
-  res.send('Success');
+app.use((req, res, next) => {
+  res.locals.doubled = parseInt(req.query.number) * 2;
+  next();
 });
 
 beforeAll(async () => {
-  await new Promise(resolve => app.listen(1234, resolve));
+  httpServer = await new Promise(resolve => {
+    const server = app.listen(() => {
+      console.log('listening on', server.address().port);
+      resolve(server);
+    })
+  });
 });
 
-test('fails', () => {
-  const res = await fetch('http://localhost:1234/');
-  const text = await res.text();
+afterAll(async () => {
+  await new Promise(resolve => httpServer.close(resolve));
+});
 
-  expect(text.toBe('Success'));
+test('fails', async () => {
+  // 1. Set up a middleware with assertion that fails
+  let actualValue;
+
+  app.use((req, res, next) => {
+    actualValue = res.locals.doubled;
+    next();
+  });
+
+  // 2. Make a request to the server
+  await fetch(`http://localhost:${httpServer.address().port}?number=2`);
+
+  expect(actualValue).toBe(3);
 });
 
