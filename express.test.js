@@ -1,39 +1,89 @@
 const fetch = require('node-fetch');
 const express = require('express');
-const app = express();
 
-let httpServer;
+class FakeServer {
+  constructor() {
+    this.app = express();
+    this.middlewares = [];
+  }
 
-app.use((req, res, next) => {
-  res.locals.doubled = parseInt(req.query.number) * 2;
+  async setup() {
+    this.httpServer = await new Promise(resolve => {
+      const server = this.app.listen(() => resolve(server));
+    });
+  }
+
+  async teardown() {
+    await new Promise(resolve => this.httpServer.close(resolve));
+  }
+
+  use(middleware, index = null) {
+    if (index === null) {
+      this.middlewares.push(middleware);
+      return;
+    }
+
+    this.middlewares.splice(index, 0, middleware);
+  }
+
+
+  ready() {
+    console.log('start ready');
+    console.log('middlewares', this.middlewares);
+
+    this.middlewares.forEach(middleware => this.app.use(middleware));
+
+    console.log('adding error middleware start');
+    this.app.use((err, req, res, next) => {
+      console.log('caught error', err);
+      fail(err);
+      next(err);
+    });
+    console.log('adding error middleware end');
+
+    console.log('end ready');
+  }
+
+  get port() {
+    console.log('got port');
+    return this.httpServer.address().port;
+  }
+}
+
+let fakeServer = new FakeServer();
+
+fakeServer.use((req, res, next) => {
+  console.log('set to hello');
+  res.locals.message = 'hello';
   next();
 });
 
-beforeAll(async () => {
-  httpServer = await new Promise(resolve => {
-    const server = app.listen(() => {
-      console.log('listening on', server.address().port);
-      resolve(server);
-    })
-  });
+fakeServer.use((req, res, next) => {
+  console.log('set to world');
+  res.locals.message = 'world';
+  next();
 });
 
-afterAll(async () => {
-  await new Promise(resolve => httpServer.close(resolve));
-});
+beforeAll(() => fakeServer.setup());
+
+afterAll(() => fakeServer.teardown());
 
 test('fails', async () => {
-  // 1. Set up a middleware with assertion that fails
-  let actualValue;
+  fakeServer.ready();
 
-  app.use((req, res, next) => {
-    actualValue = res.locals.doubled;
+  fakeServer.use((req, res, next) => {
+    expect(res.locals.message).toBe('hello');
+    next();
+  }, 1);
+
+  fakeServer.use((req, res, next) => {
+    expect(res.locals.message).toBe('world');
     next();
   });
 
   // 2. Make a request to the server
-  await fetch(`http://localhost:${httpServer.address().port}?number=2`);
-
-  expect(actualValue).toBe(3);
+  console.log('before fetch');
+  await fetch(`http://localhost:${fakeServer.port}?number=2`);
+  console.log('after fetch');
 });
 
